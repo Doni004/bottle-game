@@ -237,6 +237,53 @@ socket.on('spin-result', (data) => {
   gameState.isSpinning = false;
   updateUI();
 });
+let reconnectCountdown = null;
+
+socket.on('waiting-for-reconnect', (data) => {
+  addSystemMessage(`${data.userName} aýryldy. 30 sekunt garaşýarys...`);
+  
+  // Запускаем обратный отсчёт
+  let seconds = data.timeout;
+  reconnectCountdown = setInterval(() => {
+    seconds--;
+    if (seconds > 0) {
+      addSystemMessage(`${seconds} sekunt galdy...`);
+    } else {
+      clearInterval(reconnectCountdown);
+      reconnectCountdown = null;
+    }
+  }, 1000);
+});
+
+socket.on('player-reconnected', (data) => {
+  if (reconnectCountdown) {
+    clearInterval(reconnectCountdown);
+    reconnectCountdown = null;
+  }
+  
+  addSystemMessage(`${data.name} gaýtadan birikdi`);
+  
+  if (data.userId === currentUser.id) {
+    addSystemMessage('Nobatyňyz gaýtaryldy!');
+  }
+  
+  updateUI();
+});
+
+socket.on('reconnect-timeout', (data) => {
+  if (reconnectCountdown) {
+    clearInterval(reconnectCountdown);
+    reconnectCountdown = null;
+  }
+  
+  addSystemMessage(`${data.oldSpinner} gaýtadan birikmedi — nobat ${data.newSpinnerName}-a geçdi`);
+  
+  if (data.newSpinnerId === currentUser.id) {
+    addSystemMessage('Indi siziň nobatyňyz!');
+  }
+  
+  updateUI();
+});
 
 socket.on('spin-error', (error) => {
   showToast(error);
