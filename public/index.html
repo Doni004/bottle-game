@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="tk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Çüýşe Oýny</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <div id="register-screen">
+      <div class="logo-mark">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M8 2L8 6C8 7 7 8 6 8L6 20C6 21.1 6.9 22 8 22L16 22C17.1 22 18 21.1 18 20L18 8C17 8 16 7 16 6L16 2" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M10 2L14 2" stroke="white" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <h1>Çüýşe Oýny</h1>
+      <p class="subtitle">Dostlaryňyz bilen gyzykly wagt geçiriň</p>
+      <div class="input-group">
+        <input type="text" id="name-input" placeholder="Adyňyzy giriziň" maxlength="20" autocomplete="off">
+      </div>
+      <button class="btn-primary" onclick="register()">Oýna girmek</button>
+    </div>
+
+    <div id="game-screen">
+      <div class="header">
+        <div class="header-title">Oýunçylar</div>
+        <div class="player-count" id="player-count">0 adam</div>
+      </div>
+
+      <div class="players-list" id="players-list"></div>
+
+      <div class="bottle-area">
+        <div class="bottle-wrapper">
+          <div class="bottle-ring"></div>
+          <svg class="bottle" id="bottle" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="bottleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style="stop-color:#a855f7"/>
+                <stop offset="100%" style="stop-color:#ec4899"/>
+              </linearGradient>
+              <linearGradient id="glassGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" style="stop-color:#2a2a45;stop-opacity:0.9"/>
+                <stop offset="100%" style="stop-color:#1a1a2e;stop-opacity:0.95"/>
+              </linearGradient>
+            </defs>
+            <rect x="46" y="8" width="8" height="18" rx="2" fill="url(#glassGrad)" stroke="url(#bottleGrad)" stroke-width="1.5"/>
+            <path d="M 46 26 Q 30 32 30 50 L 30 82 Q 30 90 38 90 L 62 90 Q 70 90 70 82 L 70 50 Q 70 32 54 26 Z" fill="url(#glassGrad)" stroke="url(#bottleGrad)" stroke-width="1.5"/>
+            <path d="M 36 40 Q 34 55 36 75" stroke="rgba(255,255,255,0.3)" stroke-width="2" fill="none" stroke-linecap="round"/>
+            <polygon points="50,4 44,14 56,14" fill="url(#bottleGrad)"/>
+          </svg>
+        </div>
+        <div class="bottle-controls">
+          <button class="spin-button" id="spin-button" onclick="spinBottle()">Aýlamak</button>
+          <div class="result" id="result"></div>
+        </div>
+      </div>
+
+      <div class="chat-area">
+        <div class="chat-messages" id="chat-messages"></div>
+        <div class="chat-input">
+          <input type="text" id="chat-input" placeholder="Habar ýazyň..." maxlength="500" onkeypress="handleKeyPress(event)">
+          <button onclick="sendMessage()">➤</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="client.js"></script>
+</body>
+</html>
