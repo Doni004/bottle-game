@@ -82,6 +82,7 @@ body::after {
   flex-direction: column;
 }
 
+/* ===== ЭКРАН РЕГИСТРАЦИИ ===== */
 #register-screen {
   display: none;
   flex-direction: column;
@@ -176,6 +177,7 @@ body::after {
 .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 15px 40px var(--accent-glow); }
 .btn-primary:active { transform: translateY(0); }
 
+/* ===== ИГРОВОЙ ЭКРАН ===== */
 #game-screen {
   display: none;
   flex-direction: column;
@@ -514,27 +516,6 @@ body::after {
   .bottle-wrapper { width: 50px; height: 50px; }
   .bottle { width: 38px; height: 38px; }
   .bottle-area { padding: 10px 12px; }
-}
-
-.timer-bar {
-  width: 100%;
-  height: 3px;
-  background: var(--bg-tertiary);
-  border-radius: 2px;
-  margin-top: 6px;
-  overflow: hidden;
-}
-
-.timer-bar-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--accent), var(--accent-2));
-  border-radius: 2px;
-  width: 100%;
-  transition: width 30s linear;
-}
-
-.timer-bar-fill.running {
-  width: 0%;
 }
 
 .toast {
