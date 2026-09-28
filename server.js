@@ -43,7 +43,6 @@ const RECONNECT_TIMEOUT = 45000;
 
 const chatLimits = new Map();
 
-// Debounce для disconnect
 const disconnectTimers = new Map();
 const DISCONNECT_DELAY = 5000;
 
