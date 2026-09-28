@@ -7,6 +7,7 @@ let reconnectCountdown = null;
 let countdownMessageEl = null;
 let oldestMessageId = 0;
 let hasMoreMessages = true;
+const processedMessages = new Set(); // Для защиты от дубликатов
 
 // ===== XSS-защита =====
 function escapeHtml(text) {
