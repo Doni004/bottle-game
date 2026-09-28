@@ -143,6 +143,9 @@ async function loadMessages(limit, before = 0) {
   }
 
   messages.forEach(msg => {
+    if (processedMessages.has(msg.id)) return;
+    processedMessages.add(msg.id);
+
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message';
     messageDiv.dataset.id = msg.id;
