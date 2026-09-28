@@ -14,34 +14,27 @@ window.addEventListener('DOMContentLoaded', async () => {
   console.log('Проверка сессии:', { savedUserId, savedName });
 
   if (savedUserId && savedName) {
-    // Не устанавливаем currentUser сразу — ждём подтверждения от сервера
-    const tempId = parseInt(savedUserId);
-
-    socket.emit('restore-session', tempId);
-
-    socket.once('session-restored', (data) => {
-      console.log('Сессия восстановлена:', data);
-      currentUser = { id: data.userId, name: data.name };
-      sessionRestored = true;
-      enterGame();
-    });
-
-    socket.once('session-invalid', () => {
-      console.log('Сессия невалидна');
-      localStorage.removeItem('userId');
-      localStorage.removeItem('userName');
-      document.getElementById('register-screen').style.display = 'flex';
-    });
-
-    // Если сервер не ответил за 3 секунды — показываем регистрацию
-    setTimeout(() => {
-      if (!sessionRestored) {
-        document.getElementById('register-screen').style.display = 'flex';
-      }
-    }, 3000);
+    currentUser = { id: parseInt(savedUserId), name: savedName };
+    // Отправляем restore-session сразу
+    socket.emit('restore-session', currentUser.id);
   } else {
     document.getElementById('register-screen').style.display = 'flex';
   }
+});
+
+// ===== ОБРАБОТЧИК ПЕРЕСОЕДИНЕНИЯ =====
+// Срабатывает при каждом подключении (включая переподключение)
+socket.on('connect', () => {
+  console.log('Подключено:', socket.id);
+  
+  // Если есть сохранённая сессия, восстанавливаем её
+  if (currentUser) {
+    socket.emit('restore-session', currentUser.id);
+  }
+});
+
+socket.on('disconnect', () => {
+  console.log('Отключено');
 });
 
 // ===== РЕГИСТРАЦИЯ =====
@@ -199,6 +192,23 @@ function addSystemMessage(text) {
 
 // ===== SOCKET ОБРАБОТЧИКИ =====
 
+// Сессия восстановлена
+socket.on('session-restored', (data) => {
+  console.log('Сессия восстановлена:', data);
+  sessionRestored = true;
+  enterGame();
+});
+
+// Сессия невалидна
+socket.on('session-invalid', () => {
+  console.log('Сессия невалидна');
+  localStorage.removeItem('userId');
+  localStorage.removeItem('userName');
+  currentUser = null;
+  document.getElementById('register-screen').style.display = 'flex';
+  document.getElementById('game-screen').style.display = 'none';
+});
+
 // Сообщения чата
 socket.on('chat-message', (data) => {
   const messagesDiv = document.getElementById('chat-messages');
@@ -267,7 +277,6 @@ socket.on('spin-result', (data) => {
 socket.on('waiting-for-reconnect', (data) => {
   addSystemMessage(`${data.userName} aýryldy. 30 sekunt garaşýarys...`);
 
-  // Создаём ОДНО сообщение для обратного отсчёта (не спамим)
   const messagesDiv = document.getElementById('chat-messages');
   countdownMessageEl = document.createElement('div');
   countdownMessageEl.className = 'message system';
