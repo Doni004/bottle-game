@@ -41,10 +41,9 @@ let reconnectTimer = null;
 let reconnectUserId = null;
 const RECONNECT_TIMEOUT = 45000;
 
-// Rate limiting для чата
 const chatLimits = new Map();
 
-// Debounce для disconnect (ждём 5 секунд перед тем как сказать "вышел")
+// Debounce для disconnect
 const disconnectTimers = new Map();
 const DISCONNECT_DELAY = 5000;
 
@@ -194,7 +193,6 @@ io.on('connection', (socket) => {
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
 
     if (user) {
-      // Отключаем старые сессии
       for (const [id, s] of io.sockets.sockets) {
         if (s.userId === userId && s.id !== socket.id) {
           s.emit('session-taken');
@@ -207,7 +205,6 @@ io.on('connection', (socket) => {
       socket.userId = userId;
       socket.userName = user.name;
 
-      // Отменяем таймер disconnect если был
       if (disconnectTimers.has(userId)) {
         clearTimeout(disconnectTimers.get(userId));
         disconnectTimers.delete(userId);
@@ -245,7 +242,6 @@ io.on('connection', (socket) => {
     const user = db.prepare('SELECT name FROM users WHERE id = ?').get(userId);
     socket.userName = user.name;
 
-    // Отменяем таймер disconnect
     if (disconnectTimers.has(userId)) {
       clearTimeout(disconnectTimers.get(userId));
       disconnectTimers.delete(userId);
@@ -263,7 +259,6 @@ io.on('connection', (socket) => {
         isSystem: true
       });
     } else if (!wasActive) {
-      // Только при ПЕРВОМ входе, не при переподключении
       const msgId = saveSystemMessage(`${user.name} oýna girdi`);
       io.emit('player-joined', { userId: userId, name: user.name });
       io.emit('chat-message', {
@@ -346,16 +341,13 @@ io.on('connection', (socket) => {
       const userId = socket.userId;
       const userName = socket.userName;
 
-      // Отменяем предыдущий таймер
       if (disconnectTimers.has(userId)) {
         clearTimeout(disconnectTimers.get(userId));
       }
 
-      // Ждём 5 секунд — может это просто переподключение
       const timer = setTimeout(() => {
         const user = db.prepare('SELECT is_active, socket_id FROM users WHERE id = ?').get(userId);
         
-        // Если за 5 секунд не подключился снова — считаем что вышел
         if (!user || user.is_active === 0 || !user.socket_id) {
           db.prepare('UPDATE users SET is_active = 0, socket_id = NULL WHERE id = ?').run(userId);
 
