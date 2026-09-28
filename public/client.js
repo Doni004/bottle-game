@@ -5,8 +5,10 @@ let gameState = { currentSpinner: null, isSpinning: false };
 let sessionRestored = false;
 let reconnectCountdown = null;
 let countdownMessageEl = null;
+let oldestMessageId = 0;
+let hasMoreMessages = true;
 
-// ===== ЭКРАНИРОВАНИЕ HTML (XSS-защита) =====
+// ===== XSS-защита =====
 function escapeHtml(text) {
   if (!text) return '';
   const div = document.createElement('div');
@@ -14,34 +16,28 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-// ===== ИНИЦИАЛИЗАЦИЯ =====
-window.addEventListener('DOMContentLoaded', async () => {
+// ===== Инициализация =====
+window.addEventListener('DOMContentLoaded', () => {
   const savedUserId = localStorage.getItem('userId');
   const savedName = localStorage.getItem('userName');
 
-  console.log('Проверка сессии:', { savedUserId, savedName });
-
   if (savedUserId && savedName) {
-    // Не устанавливаем currentUser сразу — ждём подтверждения от сервера
-    const tempId = parseInt(savedUserId);
-
-    socket.emit('restore-session', tempId);
+    currentUser = { id: parseInt(savedUserId), name: savedName };
+    socket.emit('restore-session', currentUser.id);
 
     socket.once('session-restored', (data) => {
-      console.log('Сессия восстановлена:', data);
-      currentUser = { id: data.userId, name: data.name };
       sessionRestored = true;
+      currentUser = { id: data.userId, name: data.name };
       enterGame();
     });
 
     socket.once('session-invalid', () => {
-      console.log('Сессия невалидна');
       localStorage.removeItem('userId');
       localStorage.removeItem('userName');
+      currentUser = null;
       document.getElementById('register-screen').style.display = 'flex';
     });
 
-    // Если сервер не ответил за 3 секунды — показываем регистрацию
     setTimeout(() => {
       if (!sessionRestored) {
         document.getElementById('register-screen').style.display = 'flex';
@@ -52,12 +48,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
-// ===== ОБРАБОТЧИК ПЕРЕСОЕДИНЕНИЯ =====
-// Срабатывает при каждом подключении (включая переподключение Socket.io)
+// ===== Обработчик переподключения =====
 socket.on('connect', () => {
-  console.log('Подключено:', socket.id);
-  
-  // Если есть сохранённая сессия, восстанавливаем её
   if (currentUser) {
     socket.emit('restore-session', currentUser.id);
   }
@@ -67,25 +59,14 @@ socket.on('disconnect', () => {
   console.log('Отключено от сервера');
 });
 
-// ===== РЕГИСТРАЦИЯ =====
+// ===== Регистрация =====
 async function register() {
   const nameInput = document.getElementById('name-input');
   const name = nameInput.value.trim();
 
-  if (!name) {
-    showToast('Adyňyzy giriziň!');
-    return;
-  }
-
-  if (name.length < 2) {
-    showToast('Isim gysga!');
-    return;
-  }
-
-  if (name.length > 20) {
-    showToast('Isim uzyn!');
-    return;
-  }
+  if (!name) { showToast('Adyňyzy giriziň!'); return; }
+  if (name.length < 2) { showToast('Isim gysga!'); return; }
+  if (name.length > 20) { showToast('Isim uzyn!'); return; }
 
   try {
     const response = await fetch('/register', {
@@ -96,13 +77,9 @@ async function register() {
 
     const data = await response.json();
 
-    if (data.error) {
-      showToast(data.error);
-      return;
-    }
+    if (data.error) { showToast(data.error); return; }
 
     currentUser = { id: data.userId, name: data.name };
-
     localStorage.setItem('userId', currentUser.id.toString());
     localStorage.setItem('userName', currentUser.name);
 
@@ -114,13 +91,14 @@ async function register() {
   }
 }
 
-// ===== ВХОД В ИГРУ =====
+// ===== Вход в игру =====
 async function enterGame() {
   document.getElementById('register-screen').style.display = 'none';
   document.getElementById('game-screen').style.display = 'flex';
 
   await loadPlayers();
   await loadGameState();
+  await loadMessages(10);
   updateUI();
 }
 
@@ -135,7 +113,79 @@ async function loadGameState() {
   gameState = await response.json();
 }
 
-// ===== УТИЛИТЫ =====
+// ===== Загрузка истории сообщений =====
+async function loadMessages(limit, before = 0) {
+  const url = before > 0
+    ? `/messages?limit=${limit}&before=${before}`
+    : `/messages?limit=${limit}`;
+
+  const response = await fetch(url);
+  const messages = await response.json();
+
+  const messagesDiv = document.getElementById('chat-messages');
+  const loadMoreBtn = document.getElementById('load-more-btn');
+
+  if (messages.length === 0) {
+    hasMoreMessages = false;
+    loadMoreBtn.style.display = 'none';
+    return;
+  }
+
+  oldestMessageId = messages[0].id;
+
+  if (messages.length < limit) {
+    hasMoreMessages = false;
+    loadMoreBtn.style.display = 'none';
+  } else {
+    hasMoreMessages = true;
+    loadMoreBtn.style.display = 'block';
+  }
+
+  messages.forEach(msg => {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message';
+    messageDiv.dataset.id = msg.id;
+
+    if (msg.is_system === 1) {
+      messageDiv.classList.add('system');
+      messageDiv.innerHTML = `<span class="text">${escapeHtml(msg.text)}</span>`;
+    } else {
+      if (msg.author === currentUser?.name) {
+        messageDiv.classList.add('own');
+      }
+      messageDiv.innerHTML = `
+        <div class="author">${escapeHtml(msg.author)}</div>
+        <div class="text">${escapeHtml(msg.text)}</div>
+      `;
+    }
+
+    messagesDiv.appendChild(messageDiv);
+  });
+
+  if (before === 0) {
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  }
+}
+
+async function loadMoreMessages() {
+  if (!hasMoreMessages) return;
+
+  const loadMoreBtn = document.getElementById('load-more-btn');
+  loadMoreBtn.disabled = true;
+  loadMoreBtn.textContent = 'Ýüklenýär...';
+
+  const messagesDiv = document.getElementById('chat-messages');
+  const oldScrollHeight = messagesDiv.scrollHeight;
+
+  await loadMessages(10, oldestMessageId);
+
+  messagesDiv.scrollTop = messagesDiv.scrollHeight - oldScrollHeight;
+
+  loadMoreBtn.disabled = false;
+  loadMoreBtn.textContent = 'Köne habarlary ýükle';
+}
+
+// ===== Утилиты =====
 function hashColor(str) {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
@@ -174,15 +224,13 @@ function renderPlayers() {
   document.getElementById('player-count').textContent = `${players.length} adam`;
 }
 
-// ===== ВРАЩЕНИЕ БУТЫЛОЧКИ =====
+// ===== Вращение =====
 function spinBottle() {
   if (gameState.isSpinning) return;
-
   if (gameState.currentSpinner !== null && gameState.currentSpinner !== currentUser.id) {
     showToast('Häzir siziň nobatyňyz däl!');
     return;
   }
-
   socket.emit('spin-bottle');
 }
 
@@ -193,21 +241,17 @@ function updateUI() {
   spinButton.disabled = !canSpin || gameState.isSpinning;
 }
 
-// ===== ЧАТ =====
+// ===== Чат =====
 function sendMessage() {
   const input = document.getElementById('chat-input');
   const message = input.value.trim();
-
   if (!message) return;
-
   socket.emit('chat-message', { text: message });
   input.value = '';
 }
 
 function handleKeyPress(event) {
-  if (event.key === 'Enter') {
-    sendMessage();
-  }
+  if (event.key === 'Enter') sendMessage();
 }
 
 function addSystemMessage(text) {
@@ -220,19 +264,15 @@ function addSystemMessage(text) {
   return messageDiv;
 }
 
-// ===== SOCKET ОБРАБОТЧИКИ =====
+// ===== Socket обработчики =====
 
-// Сессия восстановлена
 socket.on('session-restored', (data) => {
-  console.log('Сессия восстановлена:', data);
   sessionRestored = true;
   currentUser = { id: data.userId, name: data.name };
   enterGame();
 });
 
-// Сессия невалидна
 socket.on('session-invalid', () => {
-  console.log('Сессия невалидна');
   localStorage.removeItem('userId');
   localStorage.removeItem('userName');
   currentUser = null;
@@ -240,45 +280,49 @@ socket.on('session-invalid', () => {
   document.getElementById('game-screen').style.display = 'none';
 });
 
-// Сообщения чата (с XSS-защитой)
 socket.on('chat-message', (data) => {
   const messagesDiv = document.getElementById('chat-messages');
+
+  // Защита от дублей
+  if (data.id && messagesDiv.querySelector(`[data-id="${data.id}"]`)) return;
+
   const messageDiv = document.createElement('div');
   messageDiv.className = 'message';
-  if (data.author === currentUser?.name) {
-    messageDiv.classList.add('own');
+  if (data.id) messageDiv.dataset.id = data.id;
+
+  if (data.isSystem) {
+    messageDiv.classList.add('system');
+    messageDiv.innerHTML = `<span class="text">${escapeHtml(data.text)}</span>`;
+  } else {
+    if (data.author === currentUser?.name) messageDiv.classList.add('own');
+    messageDiv.innerHTML = `
+      <div class="author">${escapeHtml(data.author)}</div>
+      <div class="text">${escapeHtml(data.text)}</div>
+    `;
   }
-  messageDiv.innerHTML = `
-    <div class="author">${escapeHtml(data.author)}</div>
-    <div class="text">${escapeHtml(data.text)}</div>
-  `;
+
   messagesDiv.appendChild(messageDiv);
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
 });
 
-// Игрок зашёл
 socket.on('player-joined', (data) => {
   addSystemMessage(`${data.name} oýna girdi`);
 });
 
-// Игрок вышел
 socket.on('player-left', (data) => {
   addSystemMessage(`${data.name} oýundan çykdy`);
 });
 
-// Обновление списка игроков
 socket.on('players-updated', async () => {
   await loadPlayers();
   updateUI();
 });
 
-// Состояние игры
 socket.on('game-state', (state) => {
   gameState = state;
   updateUI();
 });
 
-// Вращение бутылочки
 socket.on('bottle-spinning', (data) => {
   const bottle = document.getElementById('bottle');
   const result = document.getElementById('result');
@@ -294,17 +338,14 @@ socket.on('bottle-spinning', (data) => {
   setTimeout(() => bottle.classList.remove('spinning'), 3500);
 });
 
-// Результат вращения
 socket.on('spin-result', (data) => {
   const result = document.getElementById('result');
   result.innerHTML = `<span class="highlight">${escapeHtml(data.targetName)}</span> jogap bermeli!`;
-
   gameState.currentSpinner = data.nextSpinner;
   gameState.isSpinning = false;
   updateUI();
 });
 
-// Ожидание переподключения
 socket.on('waiting-for-reconnect', (data) => {
   addSystemMessage(`${data.userName} aýryldy. 45 sekunt garaşýarys...`);
 
@@ -328,7 +369,6 @@ socket.on('waiting-for-reconnect', (data) => {
   }, 1000);
 });
 
-// Игрок переподключился
 socket.on('player-reconnected', (data) => {
   if (reconnectCountdown) {
     clearInterval(reconnectCountdown);
@@ -348,7 +388,6 @@ socket.on('player-reconnected', (data) => {
   updateUI();
 });
 
-// Таймаут переподключения
 socket.on('reconnect-timeout', (data) => {
   if (reconnectCountdown) {
     clearInterval(reconnectCountdown);
@@ -368,14 +407,12 @@ socket.on('reconnect-timeout', (data) => {
   updateUI();
 });
 
-// Ошибка вращения
 socket.on('spin-error', (error) => {
   showToast(error);
   gameState.isSpinning = false;
   updateUI();
 });
 
-// Сессия захвачена другим устройством
 socket.on('session-taken', () => {
   showToast('Bu hasap başga ýerden girildi');
   localStorage.removeItem('userId');
