@@ -48,7 +48,6 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// Обработчик переподключения
 socket.on('connect', () => {
   if (currentUser) {
     socket.emit('restore-session', currentUser.id);
@@ -226,7 +225,6 @@ function renderPlayers() {
   document.getElementById('player-count').textContent = `${players.length} adam`;
 }
 
-// Вращение
 function spinBottle() {
   if (gameState.isSpinning) return;
   if (gameState.currentSpinner !== null && gameState.currentSpinner !== currentUser.id) {
@@ -243,7 +241,6 @@ function updateUI() {
   spinButton.disabled = !canSpin || gameState.isSpinning;
 }
 
-// Чат
 function sendMessage() {
   const input = document.getElementById('chat-input');
   const message = input.value.trim();
