@@ -329,31 +329,52 @@ io.on('connection', (socket) => {
   });
 
   // Отключение
-  socket.on('disconnect', () => {
-    console.log('Aýryldy:', socket.id);
-    if (socket.userId) {
-      const userName = socket.userName;
-      const userId = socket.userId;
+  // Debounce таймеры для disconnect
+const disconnectTimers = new Map(); // userId -> timer
+const DISCONNECT_DELAY = 3000; // 3 секунды ждём перед тем как сказать "вышел"
 
-      db.prepare('UPDATE users SET is_active = 0, socket_id = NULL WHERE id = ?')
-        .run(userId);
+socket.on('disconnect', () => {
+  console.log('Aýryldy:', socket.id);
+  if (socket.userId) {
+    const userId = socket.userId;
+    const userName = socket.userName;
 
-      if (gameState.currentSpinner === userId) {
-        startReconnectTimer(userId, userName);
-      }
-
-      const msgId = saveSystemMessage(`${userName} oýundan çykdy`);
-      io.emit('player-left', { userId: userId, name: userName });
-      io.emit('chat-message', {
-        id: msgId,
-        author: 'Sistema',
-        text: `${userName} oýundan çykdy`,
-        timestamp: Date.now(),
-        isSystem: true
-      });
-      io.emit('players-updated');
+    // Отменяем предыдущий таймер если был
+    if (disconnectTimers.has(userId)) {
+      clearTimeout(disconnectTimers.get(userId));
     }
-  });
+
+    // Ждём 3 секунды — может это просто переподключение
+    const timer = setTimeout(() => {
+      // Проверяем, подключился ли он снова за это время
+      const user = db.prepare('SELECT is_active, socket_id FROM users WHERE id = ?').get(userId);
+      
+      if (!user || user.is_active === 0 || !user.socket_id) {
+        // Действительно вышел
+        db.prepare('UPDATE users SET is_active = 0, socket_id = NULL WHERE id = ?').run(userId);
+
+        if (gameState.currentSpinner === userId) {
+          startReconnectTimer(userId, userName);
+        }
+
+        const msgId = saveSystemMessage(`${userName} oýundan çykdy`);
+        io.emit('player-left', { userId: userId, name: userName });
+        io.emit('chat-message', {
+          id: msgId,
+          author: 'Sistema',
+          text: `${userName} oýundan çykdy`,
+          timestamp: Date.now(),
+          isSystem: true
+        });
+        io.emit('players-updated');
+      }
+      
+      disconnectTimers.delete(userId);
+    }, DISCONNECT_DELAY);
+
+    disconnectTimers.set(userId, timer);
+  }
+});
 });
 
 const PORT = process.env.PORT || 3000;
