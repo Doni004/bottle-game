@@ -4,12 +4,11 @@ let players = [];
 let gameState = { currentSpinner: null, isSpinning: false };
 let sessionRestored = false;
 let reconnectCountdown = null;
-let countdownMessageEl = null;
 let oldestMessageId = 0;
 let hasMoreMessages = true;
-const processedMessages = new Set(); // Для защиты от дубликатов
+const processedMessages = new Set();
 
-
+// XSS-защита
 function escapeHtml(text) {
   if (!text) return '';
   const div = document.createElement('div');
@@ -17,7 +16,7 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-// ===== Инициализация =====
+// Инициализация
 window.addEventListener('DOMContentLoaded', () => {
   const savedUserId = localStorage.getItem('userId');
   const savedName = localStorage.getItem('userName');
@@ -49,7 +48,7 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// ===== Обработчик переподключения =====
+// Обработчик переподключения
 socket.on('connect', () => {
   if (currentUser) {
     socket.emit('restore-session', currentUser.id);
@@ -60,7 +59,7 @@ socket.on('disconnect', () => {
   console.log('Отключено от сервера');
 });
 
-// ===== Регистрация =====
+// Регистрация
 async function register() {
   const nameInput = document.getElementById('name-input');
   const name = nameInput.value.trim();
@@ -92,14 +91,13 @@ async function register() {
   }
 }
 
-// ===== Вход в игру =====
+// Вход в игру
 async function enterGame() {
   document.getElementById('register-screen').style.display = 'none';
   document.getElementById('game-screen').style.display = 'flex';
 
   await loadPlayers();
   await loadGameState();
-  await loadMessages(10); // Загружаем последние 10 сообщений
   updateUI();
 }
 
@@ -114,7 +112,7 @@ async function loadGameState() {
   gameState = await response.json();
 }
 
-// ===== Загрузка истории сообщений =====
+// Загрузка истории сообщений
 async function loadMessages(limit, before = 0) {
   const url = before > 0
     ? `/messages?limit=${limit}&before=${before}`
@@ -189,7 +187,7 @@ async function loadMoreMessages() {
   loadMoreBtn.textContent = 'Köne habarlary ýükle';
 }
 
-// ===== Утилиты =====
+// Утилиты
 function hashColor(str) {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
@@ -228,7 +226,7 @@ function renderPlayers() {
   document.getElementById('player-count').textContent = `${players.length} adam`;
 }
 
-// ===== Вращение =====
+// Вращение
 function spinBottle() {
   if (gameState.isSpinning) return;
   if (gameState.currentSpinner !== null && gameState.currentSpinner !== currentUser.id) {
@@ -245,7 +243,7 @@ function updateUI() {
   spinButton.disabled = !canSpin || gameState.isSpinning;
 }
 
-// ===== Чат =====
+// Чат
 function sendMessage() {
   const input = document.getElementById('chat-input');
   const message = input.value.trim();
@@ -268,8 +266,7 @@ function addSystemMessage(text) {
   return messageDiv;
 }
 
-// ===== Socket обработчики =====
-
+// Socket обработчики
 socket.on('session-restored', (data) => {
   sessionRestored = true;
   currentUser = { id: data.userId, name: data.name };
@@ -353,21 +350,23 @@ socket.on('waiting-for-reconnect', (data) => {
   addSystemMessage(`${data.userName} aýryldy. 45 sekunt garaşýarys...`);
 
   const messagesDiv = document.getElementById('chat-messages');
-  countdownMessageEl = document.createElement('div');
-  countdownMessageEl.className = 'message system';
-  messagesDiv.appendChild(countdownMessageEl);
+  const countdownEl = document.createElement('div');
+  countdownEl.className = 'message system';
+  countdownEl.id = 'countdown-message';
+  messagesDiv.appendChild(countdownEl);
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
 
   let seconds = data.timeout;
   reconnectCountdown = setInterval(() => {
     seconds--;
-    if (seconds > 0 && countdownMessageEl) {
-      countdownMessageEl.innerHTML = `<span class="text">${seconds} sekunt galdy...</span>`;
+    const el = document.getElementById('countdown-message');
+    if (seconds > 0 && el) {
+      el.innerHTML = `<span class="text">${seconds} sekunt galdy...</span>`;
       messagesDiv.scrollTop = messagesDiv.scrollHeight;
     } else {
       clearInterval(reconnectCountdown);
       reconnectCountdown = null;
-      countdownMessageEl = null;
+      if (el) el.remove();
     }
   }, 1000);
 });
@@ -377,10 +376,8 @@ socket.on('player-reconnected', (data) => {
     clearInterval(reconnectCountdown);
     reconnectCountdown = null;
   }
-  if (countdownMessageEl) {
-    countdownMessageEl.remove();
-    countdownMessageEl = null;
-  }
+  const el = document.getElementById('countdown-message');
+  if (el) el.remove();
 
   addSystemMessage(`${data.name} gaýtadan birikdi`);
 
@@ -396,10 +393,8 @@ socket.on('reconnect-timeout', (data) => {
     clearInterval(reconnectCountdown);
     reconnectCountdown = null;
   }
-  if (countdownMessageEl) {
-    countdownMessageEl.remove();
-    countdownMessageEl = null;
-  }
+  const el = document.getElementById('countdown-message');
+  if (el) el.remove();
 
   addSystemMessage(`${data.oldSpinner} gaýtadan birikmedi — nobat ${data.newSpinnerName}-a geçdi`);
 
