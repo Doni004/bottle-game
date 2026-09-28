@@ -285,7 +285,6 @@ socket.on('session-invalid', () => {
 });
 
 socket.on('chat-message', (data) => {
-  // Защита от дубликатов
   if (data.id && processedMessages.has(data.id)) return;
   if (data.id) processedMessages.add(data.id);
 
@@ -308,6 +307,7 @@ socket.on('chat-message', (data) => {
   messagesDiv.appendChild(messageDiv);
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
 });
+
 socket.on('player-joined', (data) => {
   addSystemMessage(`${data.name} oýna girdi`);
 });
