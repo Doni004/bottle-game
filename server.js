@@ -31,7 +31,6 @@ db.exec(`
 // Ограничиваем историю последними 200 сообщениями
 db.exec(`DELETE FROM messages WHERE id NOT IN (SELECT id FROM messages ORDER BY id DESC LIMIT 200)`);
 
-// Очистка неактивных при старте
 db.prepare('UPDATE users SET is_active = 0, socket_id = NULL').run();
 
 let gameState = {
@@ -41,10 +40,14 @@ let gameState = {
 
 let reconnectTimer = null;
 let reconnectUserId = null;
-const RECONNECT_TIMEOUT = 45000; // 45 секунд для мобильного интернета
+const RECONNECT_TIMEOUT = 45000;
 
 // Rate limiting для чата
 const chatLimits = new Map();
+
+// Debounce для disconnect (ждём 5 секунд перед тем как сказать "вышел")
+const disconnectTimers = new Map();
+const DISCONNECT_DELAY = 5000;
 
 function clearReconnectTimer() {
   if (reconnectTimer) {
@@ -117,7 +120,6 @@ function startReconnectTimer(userId, userName) {
 app.use(express.static('public'));
 app.use(express.json());
 
-// Регистрация
 app.post('/register', (req, res) => {
   const { name } = req.body;
 
@@ -167,7 +169,6 @@ app.get('/game-state', (req, res) => {
   res.json(gameState);
 });
 
-// API для загрузки истории сообщений
 app.get('/messages', (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 10, 50);
   const before = parseInt(req.query.before) || 0;
@@ -187,16 +188,14 @@ app.get('/messages', (req, res) => {
   res.json(messages.reverse());
 });
 
-// WebSocket
 io.on('connection', (socket) => {
   console.log('Täze birikme:', socket.id);
 
-  // Восстановление сессии
   socket.on('restore-session', (userId) => {
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
 
     if (user) {
-      // Отключаем старые сессии этого пользователя
+      // Отключаем старые сессии
       for (const [id, s] of io.sockets.sockets) {
         if (s.userId === userId && s.id !== socket.id) {
           s.emit('session-taken');
@@ -208,6 +207,12 @@ io.on('connection', (socket) => {
         .run(socket.id, userId);
       socket.userId = userId;
       socket.userName = user.name;
+
+      // Отменяем таймер disconnect если был
+      if (disconnectTimers.has(userId)) {
+        clearTimeout(disconnectTimers.get(userId));
+        disconnectTimers.delete(userId);
+      }
 
       if (reconnectUserId === userId) {
         clearReconnectTimer();
@@ -230,52 +235,50 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Новая регистрация
   socket.on('register', (userId) => {
-  const prevUser = db.prepare('SELECT is_active FROM users WHERE id = ?').get(userId);
-  const wasActive = prevUser && prevUser.is_active === 1;
+    const prevUser = db.prepare('SELECT is_active FROM users WHERE id = ?').get(userId);
+    const wasActive = prevUser && prevUser.is_active === 1;
 
-  db.prepare('UPDATE users SET socket_id = ?, is_active = 1 WHERE id = ?')
-    .run(socket.id, userId);
-  socket.userId = userId;
+    db.prepare('UPDATE users SET socket_id = ?, is_active = 1 WHERE id = ?')
+      .run(socket.id, userId);
+    socket.userId = userId;
 
-  const user = db.prepare('SELECT name FROM users WHERE id = ?').get(userId);
-  socket.userName = user.name;
+    const user = db.prepare('SELECT name FROM users WHERE id = ?').get(userId);
+    socket.userName = user.name;
 
-  // Отменяем таймер disconnect если был
-  if (disconnectTimers.has(userId)) {
-    clearTimeout(disconnectTimers.get(userId));
-    disconnectTimers.delete(userId);
-  }
+    // Отменяем таймер disconnect
+    if (disconnectTimers.has(userId)) {
+      clearTimeout(disconnectTimers.get(userId));
+      disconnectTimers.delete(userId);
+    }
 
-  if (reconnectUserId === userId) {
-    clearReconnectTimer();
-    const msgId = saveSystemMessage(`${user.name} gaýtadan birikdi`);
-    io.emit('player-reconnected', { userId: userId, name: user.name });
-    io.emit('chat-message', {
-      id: msgId,
-      author: 'Sistema',
-      text: `${user.name} gaýtadan birikdi`,
-      timestamp: Date.now(),
-      isSystem: true
-    });
-  } else if (!wasActive) {
-    // Только если реально новый вход, а не переподключение
-    const msgId = saveSystemMessage(`${user.name} oýna girdi`);
-    io.emit('player-joined', { userId: userId, name: user.name });
-    io.emit('chat-message', {
-      id: msgId,
-      author: 'Sistema',
-      text: `${user.name} oýna girdi`,
-      timestamp: Date.now(),
-      isSystem: true
-    });
-  }
+    if (reconnectUserId === userId) {
+      clearReconnectTimer();
+      const msgId = saveSystemMessage(`${user.name} gaýtadan birikdi`);
+      io.emit('player-reconnected', { userId: userId, name: user.name });
+      io.emit('chat-message', {
+        id: msgId,
+        author: 'Sistema',
+        text: `${user.name} gaýtadan birikdi`,
+        timestamp: Date.now(),
+        isSystem: true
+      });
+    } else if (!wasActive) {
+      // Только при ПЕРВОМ входе, не при переподключении
+      const msgId = saveSystemMessage(`${user.name} oýna girdi`);
+      io.emit('player-joined', { userId: userId, name: user.name });
+      io.emit('chat-message', {
+        id: msgId,
+        author: 'Sistema',
+        text: `${user.name} oýna girdi`,
+        timestamp: Date.now(),
+        isSystem: true
+      });
+    }
 
-  io.emit('players-updated');
-});
+    io.emit('players-updated');
+  });
 
-  // Вращение бутылочки
   socket.on('spin-bottle', () => {
     if (gameState.isSpinning) return;
     if (gameState.currentSpinner !== null && gameState.currentSpinner !== socket.userId) return;
@@ -312,14 +315,13 @@ io.on('connection', (socket) => {
     }, 3000);
   });
 
-  // Чат с защитой от спама
   socket.on('chat-message', (data) => {
     if (!socket.userId || !socket.userName) return;
 
     const now = Date.now();
     const lastTime = chatLimits.get(socket.userId) || 0;
 
-    if (now - lastTime < 1000) return; // не чаще 1 сообщения в секунду
+    if (now - lastTime < 1000) return;
     chatLimits.set(socket.userId, now);
 
     if (!data.text || typeof data.text !== 'string') return;
@@ -339,53 +341,47 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Отключение
-  // Debounce таймеры для disconnect
-const disconnectTimers = new Map(); // userId -> timer
-const DISCONNECT_DELAY = 3000; // 3 секунды ждём перед тем как сказать "вышел"
+  socket.on('disconnect', () => {
+    console.log('Aýryldy:', socket.id);
+    if (socket.userId) {
+      const userId = socket.userId;
+      const userName = socket.userName;
 
-socket.on('disconnect', () => {
-  console.log('Aýryldy:', socket.id);
-  if (socket.userId) {
-    const userId = socket.userId;
-    const userName = socket.userName;
-
-    // Отменяем предыдущий таймер если был
-    if (disconnectTimers.has(userId)) {
-      clearTimeout(disconnectTimers.get(userId));
-    }
-
-    // Ждём 3 секунды — может это просто переподключение
-    const timer = setTimeout(() => {
-      // Проверяем, подключился ли он снова за это время
-      const user = db.prepare('SELECT is_active, socket_id FROM users WHERE id = ?').get(userId);
-      
-      if (!user || user.is_active === 0 || !user.socket_id) {
-        // Действительно вышел
-        db.prepare('UPDATE users SET is_active = 0, socket_id = NULL WHERE id = ?').run(userId);
-
-        if (gameState.currentSpinner === userId) {
-          startReconnectTimer(userId, userName);
-        }
-
-        const msgId = saveSystemMessage(`${userName} oýundan çykdy`);
-        io.emit('player-left', { userId: userId, name: userName });
-        io.emit('chat-message', {
-          id: msgId,
-          author: 'Sistema',
-          text: `${userName} oýundan çykdy`,
-          timestamp: Date.now(),
-          isSystem: true
-        });
-        io.emit('players-updated');
+      // Отменяем предыдущий таймер
+      if (disconnectTimers.has(userId)) {
+        clearTimeout(disconnectTimers.get(userId));
       }
-      
-      disconnectTimers.delete(userId);
-    }, DISCONNECT_DELAY);
 
-    disconnectTimers.set(userId, timer);
-  }
-});
+      // Ждём 5 секунд — может это просто переподключение
+      const timer = setTimeout(() => {
+        const user = db.prepare('SELECT is_active, socket_id FROM users WHERE id = ?').get(userId);
+        
+        // Если за 5 секунд не подключился снова — считаем что вышел
+        if (!user || user.is_active === 0 || !user.socket_id) {
+          db.prepare('UPDATE users SET is_active = 0, socket_id = NULL WHERE id = ?').run(userId);
+
+          if (gameState.currentSpinner === userId) {
+            startReconnectTimer(userId, userName);
+          }
+
+          const msgId = saveSystemMessage(`${userName} oýundan çykdy`);
+          io.emit('player-left', { userId: userId, name: userName });
+          io.emit('chat-message', {
+            id: msgId,
+            author: 'Sistema',
+            text: `${userName} oýundan çykdy`,
+            timestamp: Date.now(),
+            isSystem: true
+          });
+          io.emit('players-updated');
+        }
+        
+        disconnectTimers.delete(userId);
+      }, DISCONNECT_DELAY);
+
+      disconnectTimers.set(userId, timer);
+    }
+  });
 });
 
 const PORT = process.env.PORT || 3000;
