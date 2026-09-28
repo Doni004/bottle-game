@@ -28,7 +28,6 @@ db.exec(`
   )
 `);
 
-// Ограничиваем историю последними 200 сообщениями
 db.exec(`DELETE FROM messages WHERE id NOT IN (SELECT id FROM messages ORDER BY id DESC LIMIT 200)`);
 
 db.prepare('UPDATE users SET is_active = 0, socket_id = NULL').run();
