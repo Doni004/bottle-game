@@ -232,26 +232,35 @@ io.on('connection', (socket) => {
 
   // Новая регистрация
   socket.on('register', (userId) => {
-    db.prepare('UPDATE users SET socket_id = ?, is_active = 1 WHERE id = ?')
-      .run(socket.id, userId);
-    socket.userId = userId;
+  const prevUser = db.prepare('SELECT is_active FROM users WHERE id = ?').get(userId);
+  const wasActive = prevUser && prevUser.is_active === 1;
 
-    const user = db.prepare('SELECT name FROM users WHERE id = ?').get(userId);
-    socket.userName = user.name;
+  db.prepare('UPDATE users SET socket_id = ?, is_active = 1 WHERE id = ?')
+    .run(socket.id, userId);
+  socket.userId = userId;
 
-    if (reconnectUserId === userId) {
-      clearReconnectTimer();
-      const msgId = saveSystemMessage(`${user.name} gaýtadan birikdi`);
-      io.emit('player-reconnected', { userId: userId, name: user.name });
-      io.emit('chat-message', {
-        id: msgId,
-        author: 'Sistema',
-        text: `${user.name} gaýtadan birikdi`,
-        timestamp: Date.now(),
-        isSystem: true
-      });
-    }
+  const user = db.prepare('SELECT name FROM users WHERE id = ?').get(userId);
+  socket.userName = user.name;
 
+  // Отменяем таймер disconnect если был
+  if (disconnectTimers.has(userId)) {
+    clearTimeout(disconnectTimers.get(userId));
+    disconnectTimers.delete(userId);
+  }
+
+  if (reconnectUserId === userId) {
+    clearReconnectTimer();
+    const msgId = saveSystemMessage(`${user.name} gaýtadan birikdi`);
+    io.emit('player-reconnected', { userId: userId, name: user.name });
+    io.emit('chat-message', {
+      id: msgId,
+      author: 'Sistema',
+      text: `${user.name} gaýtadan birikdi`,
+      timestamp: Date.now(),
+      isSystem: true
+    });
+  } else if (!wasActive) {
+    // Только если реально новый вход, а не переподключение
     const msgId = saveSystemMessage(`${user.name} oýna girdi`);
     io.emit('player-joined', { userId: userId, name: user.name });
     io.emit('chat-message', {
@@ -261,8 +270,10 @@ io.on('connection', (socket) => {
       timestamp: Date.now(),
       isSystem: true
     });
-    io.emit('players-updated');
-  });
+  }
+
+  io.emit('players-updated');
+});
 
   // Вращение бутылочки
   socket.on('spin-bottle', () => {
