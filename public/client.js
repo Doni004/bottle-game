@@ -9,7 +9,7 @@ let oldestMessageId = 0;
 let hasMoreMessages = true;
 const processedMessages = new Set(); // Для защиты от дубликатов
 
-// ===== XSS-защита =====
+
 function escapeHtml(text) {
   if (!text) return '';
   const div = document.createElement('div');
@@ -282,11 +282,11 @@ socket.on('session-invalid', () => {
 });
 
 socket.on('chat-message', (data) => {
+  // Защита от дубликатов
+  if (data.id && processedMessages.has(data.id)) return;
+  if (data.id) processedMessages.add(data.id);
+
   const messagesDiv = document.getElementById('chat-messages');
-
-  // Защита от дублей
-  if (data.id && messagesDiv.querySelector(`[data-id="${data.id}"]`)) return;
-
   const messageDiv = document.createElement('div');
   messageDiv.className = 'message';
   if (data.id) messageDiv.dataset.id = data.id;
@@ -305,7 +305,6 @@ socket.on('chat-message', (data) => {
   messagesDiv.appendChild(messageDiv);
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
 });
-
 socket.on('player-joined', (data) => {
   addSystemMessage(`${data.name} oýna girdi`);
 });
