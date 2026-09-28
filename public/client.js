@@ -99,7 +99,7 @@ async function enterGame() {
 
   await loadPlayers();
   await loadGameState();
-  await loadMessages(10);
+  await loadMessages(10); // Загружаем последние 10 сообщений
   updateUI();
 }
 
