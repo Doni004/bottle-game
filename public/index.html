@@ -64,6 +64,9 @@
 
       <div class="chat-area">
         <div class="chat-messages" id="chat-messages"></div>
+        <button class="load-more-btn" id="load-more-btn" onclick="loadMoreMessages()" style="display:none;">
+          Köne habarlary ýükle
+        </button>
         <div class="chat-input">
           <input type="text" id="chat-input" placeholder="Habar ýazyň..." maxlength="500" onkeypress="handleKeyPress(event)">
           <button onclick="sendMessage()">➤</button>
