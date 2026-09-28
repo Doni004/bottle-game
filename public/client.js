@@ -6,6 +6,14 @@ let sessionRestored = false;
 let reconnectCountdown = null;
 let countdownMessageEl = null;
 
+// ===== ЭКРАНИРОВАНИЕ HTML (XSS-защита) =====
+function escapeHtml(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
 // ===== ИНИЦИАЛИЗАЦИЯ =====
 window.addEventListener('DOMContentLoaded', async () => {
   const savedUserId = localStorage.getItem('userId');
@@ -14,16 +22,38 @@ window.addEventListener('DOMContentLoaded', async () => {
   console.log('Проверка сессии:', { savedUserId, savedName });
 
   if (savedUserId && savedName) {
-    currentUser = { id: parseInt(savedUserId), name: savedName };
-    // Отправляем restore-session сразу
-    socket.emit('restore-session', currentUser.id);
+    // Не устанавливаем currentUser сразу — ждём подтверждения от сервера
+    const tempId = parseInt(savedUserId);
+
+    socket.emit('restore-session', tempId);
+
+    socket.once('session-restored', (data) => {
+      console.log('Сессия восстановлена:', data);
+      currentUser = { id: data.userId, name: data.name };
+      sessionRestored = true;
+      enterGame();
+    });
+
+    socket.once('session-invalid', () => {
+      console.log('Сессия невалидна');
+      localStorage.removeItem('userId');
+      localStorage.removeItem('userName');
+      document.getElementById('register-screen').style.display = 'flex';
+    });
+
+    // Если сервер не ответил за 3 секунды — показываем регистрацию
+    setTimeout(() => {
+      if (!sessionRestored) {
+        document.getElementById('register-screen').style.display = 'flex';
+      }
+    }, 3000);
   } else {
     document.getElementById('register-screen').style.display = 'flex';
   }
 });
 
 // ===== ОБРАБОТЧИК ПЕРЕСОЕДИНЕНИЯ =====
-// Срабатывает при каждом подключении (включая переподключение)
+// Срабатывает при каждом подключении (включая переподключение Socket.io)
 socket.on('connect', () => {
   console.log('Подключено:', socket.id);
   
@@ -34,7 +64,7 @@ socket.on('connect', () => {
 });
 
 socket.on('disconnect', () => {
-  console.log('Отключено');
+  console.log('Отключено от сервера');
 });
 
 // ===== РЕГИСТРАЦИЯ =====
@@ -134,9 +164,9 @@ function renderPlayers() {
     }
     avatar.style.background = hashColor(player.name);
     avatar.innerHTML = `
-      ${player.name[0].toUpperCase()}
+      ${escapeHtml(player.name[0].toUpperCase())}
       <span class="status-dot"></span>
-      <span class="player-name">${player.name}</span>
+      <span class="player-name">${escapeHtml(player.name)}</span>
     `;
     playersList.appendChild(avatar);
   });
@@ -184,7 +214,7 @@ function addSystemMessage(text) {
   const messagesDiv = document.getElementById('chat-messages');
   const messageDiv = document.createElement('div');
   messageDiv.className = 'message system';
-  messageDiv.innerHTML = `<span class="text">${text}</span>`;
+  messageDiv.innerHTML = `<span class="text">${escapeHtml(text)}</span>`;
   messagesDiv.appendChild(messageDiv);
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
   return messageDiv;
@@ -196,6 +226,7 @@ function addSystemMessage(text) {
 socket.on('session-restored', (data) => {
   console.log('Сессия восстановлена:', data);
   sessionRestored = true;
+  currentUser = { id: data.userId, name: data.name };
   enterGame();
 });
 
@@ -209,7 +240,7 @@ socket.on('session-invalid', () => {
   document.getElementById('game-screen').style.display = 'none';
 });
 
-// Сообщения чата
+// Сообщения чата (с XSS-защитой)
 socket.on('chat-message', (data) => {
   const messagesDiv = document.getElementById('chat-messages');
   const messageDiv = document.createElement('div');
@@ -218,8 +249,8 @@ socket.on('chat-message', (data) => {
     messageDiv.classList.add('own');
   }
   messageDiv.innerHTML = `
-    <div class="author">${data.author}</div>
-    <div class="text">${data.text}</div>
+    <div class="author">${escapeHtml(data.author)}</div>
+    <div class="text">${escapeHtml(data.text)}</div>
   `;
   messagesDiv.appendChild(messageDiv);
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
@@ -266,7 +297,7 @@ socket.on('bottle-spinning', (data) => {
 // Результат вращения
 socket.on('spin-result', (data) => {
   const result = document.getElementById('result');
-  result.innerHTML = `<span class="highlight">${data.targetName}</span> jogap bermeli!`;
+  result.innerHTML = `<span class="highlight">${escapeHtml(data.targetName)}</span> jogap bermeli!`;
 
   gameState.currentSpinner = data.nextSpinner;
   gameState.isSpinning = false;
@@ -275,7 +306,7 @@ socket.on('spin-result', (data) => {
 
 // Ожидание переподключения
 socket.on('waiting-for-reconnect', (data) => {
-  addSystemMessage(`${data.userName} aýryldy. 30 sekunt garaşýarys...`);
+  addSystemMessage(`${data.userName} aýryldy. 45 sekunt garaşýarys...`);
 
   const messagesDiv = document.getElementById('chat-messages');
   countdownMessageEl = document.createElement('div');
