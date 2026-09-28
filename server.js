@@ -17,7 +17,6 @@ db.exec(`
   )
 `);
 
-// Очистка неактивных пользователей при старте
 db.prepare('UPDATE users SET is_active = 0, socket_id = NULL').run();
 
 let gameState = {
@@ -28,7 +27,10 @@ let gameState = {
 // Таймер ожидания переподключения
 let reconnectTimer = null;
 let reconnectUserId = null;
-const RECONNECT_TIMEOUT = 30000; // 30 секунд
+const RECONNECT_TIMEOUT = 45000; // 45 секунд для мобильного интернета
+
+// Rate limiting для чата
+const chatLimits = new Map(); // userId -> lastMessageTime
 
 function clearReconnectTimer() {
   if (reconnectTimer) {
@@ -223,8 +225,19 @@ io.on('connection', (socket) => {
     }, 3000);
   });
 
-  // Чат
+  // Чат с защитой от спама
   socket.on('chat-message', (data) => {
+    if (!socket.userId || !socket.userName) return;
+
+    const now = Date.now();
+    const lastTime = chatLimits.get(socket.userId) || 0;
+
+    if (now - lastTime < 1000) { // Не чаще 1 сообщения в секунду
+      return;
+    }
+
+    chatLimits.set(socket.userId, now);
+
     if (!data.text || typeof data.text !== 'string') return;
     const text = data.text.trim().slice(0, 500);
     if (!text) return;
@@ -232,7 +245,7 @@ io.on('connection', (socket) => {
     io.emit('chat-message', {
       author: socket.userName,
       text: text,
-      timestamp: Date.now()
+      timestamp: now
     });
   });
 
